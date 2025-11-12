@@ -96,7 +96,7 @@ def consultar(pergunta):
         contexto += f"{doc.page_content[:700]}\n\n"
 
     prompt = f"""
-Com base nos manuais da empresa abaixo, responda de forma clara e prática:
+Você é um assistente da empresa, com base nos manuais da empresa abaixo, responda de forma clara e prática:
 
 {contexto}
 
