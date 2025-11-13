@@ -1,5 +1,7 @@
+# ===========================================
 # Instalações necessárias (coloque no terminal):
-# pip install streamlit langchain-google-genai langchain-chroma chromadb langchain-community sentence-transformers pypdf pyyaml
+# pip install streamlit langchain-google-genai langchain-chroma chromadb langchain-community sentence-transformers pypdf pyyaml chonk
+# ===========================================
 
 import streamlit as st
 import os
@@ -11,6 +13,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_chroma import Chroma
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # ==============================
 # Configurações iniciais
@@ -44,19 +47,33 @@ embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 
 
 # ==============================
-# Função: indexar PDFs
+# Função: indexar PDFs com CHONK
 # ==============================
 def indexar_pdfs():
     if os.path.exists(CHROMA_PATH):
         shutil.rmtree(CHROMA_PATH)
 
     documentos = []
+
+    # 🔹 Divisor de texto oficial do LangChain
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,      # Tamanho máximo do pedaço
+        chunk_overlap=100,   # Sobreposição entre pedaços (mantém contexto)
+        separators=["\n\n", "\n", ".", "?", "!", " "]  # Corta de forma natural
+    )
+
     for arquivo in glob.glob(os.path.join(PDF_FOLDER, "*.pdf")):
         loader = PyPDFLoader(arquivo)
         pages = loader.load()
+
         for page in pages:
-            page.metadata["manual"] = os.path.basename(arquivo).replace(".pdf", "")
-            documentos.append(page)
+            chunks = text_splitter.split_text(page.page_content)
+            for i, chunk in enumerate(chunks):
+                novo_doc = page.copy()
+                novo_doc.page_content = chunk
+                novo_doc.metadata["manual"] = os.path.basename(arquivo).replace(".pdf", "")
+                novo_doc.metadata["chunk"] = i + 1
+                documentos.append(novo_doc)
 
     if not documentos:
         st.warning("⚠️ Nenhum PDF encontrado na pasta ./manuais/")
@@ -91,12 +108,13 @@ def consultar(pergunta):
     contexto = ""
     for doc, score in results:
         manual = doc.metadata.get("manual", "Desconhecido")
+        chunk_id = doc.metadata.get("chunk", "?")
         similaridade = 1 - score
-        contexto += f"📘 Manual **{manual}** (relevância: {similaridade:.2f})\n\n"
+        contexto += f"📘 Manual **{manual}** (parte {chunk_id}, relevância: {similaridade:.2f})\n\n"
         contexto += f"{doc.page_content[:700]}\n\n"
 
     prompt = f"""
-Você é um assistente da empresa, com base nos manuais da empresa abaixo, responda de forma clara e prática:
+Você é um assistente da empresa. Com base nos manuais abaixo, responda de forma objetiva e prática:
 
 {contexto}
 
@@ -115,12 +133,12 @@ st.title("Manuais da Empresa")
 
 # --- Aba lateral ---
 with st.sidebar:
-    st.header(" Configurações")
+    st.header("⚙️ Configurações")
     if st.button("Indexar PDFs Novamente"):
-        with st.spinner("Indexando PDFs..."):
+        with st.spinner("Indexando PDFs e dividindo em pedaços..."):
             qtd = indexar_pdfs()
             if qtd:
-                st.success(f"✅ {qtd} páginas indexadas com sucesso!")
+                st.success(f"✅ {qtd} pedaços indexados com sucesso!")
             else:
                 st.warning("Nenhum documento indexado.")
         time.sleep(1)
@@ -129,7 +147,7 @@ with st.sidebar:
     if os.path.exists(PDF_FOLDER):
         pdfs = glob.glob(os.path.join(PDF_FOLDER, "*.pdf"))
         if pdfs:
-            st.write("Arquivos detectados:")
+            st.write("📂 Arquivos detectados:")
             for pdf in pdfs:
                 st.write(f"- {os.path.basename(pdf)}")
         else:
@@ -138,16 +156,15 @@ with st.sidebar:
 # --- Área principal ---
 pergunta = st.text_area("Digite sua pergunta:", height=100)
 
-if st.button(" Consultar"):
+if st.button("🔍 Consultar"):
     if pergunta.strip() == "":
         st.warning("Digite uma pergunta primeiro.")
     else:
         with st.spinner("Buscando resposta nos manuais..."):
             resposta = consultar(pergunta)
-        st.markdown("###  Resposta:")
+        st.markdown("### 🧠 Resposta:")
         st.write(resposta)
 
 # --- Rodapé ---
 st.markdown("---")
 st.caption("Desenvolvido por Guilherme Gabriel Santana - 2025")
-
